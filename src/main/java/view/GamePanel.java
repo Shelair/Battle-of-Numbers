@@ -141,7 +141,7 @@ public class GamePanel extends JPanel {
             }
         }
 
-        // Кнопка
+        // Кнопочка
         g2.setColor(Color.LIGHT_GRAY);
         g2.fill(endTurnBtn);
         g2.setColor(Color.BLACK);
