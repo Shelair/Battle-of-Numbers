@@ -121,7 +121,7 @@ public class GamePanel extends JPanel {
             int cardW = 75;
             int cardH = 110;
 
-            // Если карта выбрана, она "подпрыгивает" на 20 пикселей вверх
+            // Если карта выбрана, то она "подпрыгивает" на 20 пикселей вверх
             if (i == player.selectedCardIndex) {
                 cardY -= 20;
                 g2.setColor(Color.YELLOW);
