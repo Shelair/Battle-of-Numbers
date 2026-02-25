@@ -10,6 +10,10 @@ import java.util.List;
 public class Player {
     // Координаты и физические размеры
     public int x = 100, y = 100, size = 64, speed = 5;
+    public boolean isRunningToBattle = false;
+
+    public int invulnerableTurns = 0; // Ходы неуязвимости
+    public boolean sevenEffectUsedInThisRound = false; // Флаг для семерок
 
     // Состояние анимации (нужно для GamePanel)
     public boolean isMoving = false;
