@@ -2,6 +2,8 @@ package com.example.demo.controller;
 
 import com.example.demo.model.*;
 import com.example.demo.view.GamePanel;
+
+import javax.swing.Timer;
 import java.awt.Rectangle;
 import java.awt.event.*;
 import java.util.Random;
@@ -13,6 +15,7 @@ public class GameController extends MouseAdapter implements Runnable {
     private Random rnd = new Random();
     private boolean running = true;
     private boolean wasAttackUsed = false;
+    private boolean isEnemyTurning = false;
 
     public GameController(Player player, GamePanel panel) {
         this.player = player;
@@ -22,7 +25,7 @@ public class GameController extends MouseAdapter implements Runnable {
 
     @Override
     public void mousePressed(MouseEvent e) {
-        if (!panel.isBattleMode) return;
+        if (!panel.isBattleMode || isEnemyTurning) return;
 
         int mx = e.getX();
         int my = e.getY();
@@ -33,10 +36,11 @@ public class GameController extends MouseAdapter implements Runnable {
             return;
         }
 
-        // 2. Выбор карты (Rectangle создаем прямо в цикле для проверки клика)
+        // 2. Выбор карты (Проверяем на null, чтобы не тыкать в пустое место)
         for (int i = 0; i < player.hand.size(); i++) {
-            if (new Rectangle(100 + i * 80, 400, 60, 90).contains(mx, my)) {
+            if (player.hand.get(i) != null && new Rectangle(80 + i * 110, 450, 100, 145).contains(mx, my)) {
                 player.selectedCardIndex = i;
+                panel.repaint();
                 return;
             }
         }
@@ -44,13 +48,40 @@ public class GameController extends MouseAdapter implements Runnable {
         // 3. Удар по врагу
         if (player.selectedCardIndex != -1) {
             for (int i = 0; i < player.currentEnemies.size(); i++) {
-                if (new Rectangle(100 + i * 150, 150, 80, 80).contains(mx, my)) {
-                    int dmg = player.hand.remove(player.selectedCardIndex);
-                    player.currentEnemies.get(i).value -= dmg;
+                Enemy target = player.currentEnemies.get(i);
+
+                // Бьем только если враг еще жив (HP > 0)
+                if (target.value > 0 && new Rectangle(80 + i * 180, 130, 120, 120).contains(mx, my)) {
+
+                    panel.animateEnemyHurt(i);
+
+                    // Вместо удаления — ставим null. Карта исчезнет, но зазор останется
+                    int dmg = player.hand.get(player.selectedCardIndex);
+                    player.hand.set(player.selectedCardIndex, null);
+
+                    target.value -= dmg;
                     wasAttackUsed = true;
-                    if (player.currentEnemies.get(i).value <= 0) player.currentEnemies.remove(i);
                     player.selectedCardIndex = -1;
-                    if (player.currentEnemies.isEmpty()) panel.isBattleMode = false;
+
+                    // Проверка на победу (если все враги повержены)
+                    boolean allDead = true;
+                    for (Enemy en : player.currentEnemies) {
+                        if (en.value > 0) {
+                            allDead = false;
+                            break;
+                        }
+                    }
+
+                    if (allDead) {
+                        Timer winDelay = new Timer(600, ev -> {
+                            panel.isBattleMode = false;
+                            ((Timer)ev.getSource()).stop();
+                            panel.repaint();
+                        });
+                        winDelay.start();
+                    }
+
+                    panel.repaint();
                     return;
                 }
             }
@@ -58,24 +89,52 @@ public class GameController extends MouseAdapter implements Runnable {
     }
 
     private void endPlayerTurn() {
-        if (!wasAttackUsed) {
-            for(int i = 0; i < 2; i++) player.hand.add(rnd.nextInt(9) + 1);
-        }
-        for (Enemy en : player.currentEnemies) {
-            player.hp -= (rnd.nextInt(en.value) + 1);
-        }
-        wasAttackUsed = false;
-        player.selectedCardIndex = -1;
+        if (isEnemyTurning) return;
+        isEnemyTurning = true;
 
-        // Проверка на смерть (Game Over)
-        if (player.hp <= 0) {
-            System.out.println("Вы проиграли!");
-            // Тут можно добавить сброс игры или переход в меню
+        // ТОЛЬКО СЕЙЧАС убираем пустые места (null) и сдвигаем карты влево
+        player.hand.removeIf(val -> val == null);
+
+        // Добор карт (лимит 6)
+        if (!wasAttackUsed) {
+            for (int i = 0; i < 2; i++) {
+                if (player.hand.size() < 6) {
+                    player.hand.add(rnd.nextInt(9) + 1);
+                }
+            }
         }
+
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < player.currentEnemies.size(); i++) {
+                    Enemy en = player.currentEnemies.get(i);
+
+                    // Мертвые враги не атакуют
+                    if (en.value <= 0) continue;
+
+                    panel.animateEnemyAttack(i);
+                    player.hp -= (rnd.nextInt(en.value) + 1);
+
+                    Thread.sleep(700);
+                    panel.repaint();
+                }
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            } finally {
+                wasAttackUsed = false;
+                player.selectedCardIndex = -1;
+                isEnemyTurning = false;
+
+                if (player.hp <= 0) {
+                    System.out.println("Игра окончена!");
+                }
+                panel.repaint();
+            }
+        }).start();
     }
 
     public void update() {
-        if (panel.isBattleMode) return; // В бою ходить нельзя
+        if (panel.isBattleMode) return;
 
         boolean movingNow = false;
         if (keys[KeyEvent.VK_W]) { player.y -= player.speed; movingNow = true; }
@@ -85,7 +144,6 @@ public class GameController extends MouseAdapter implements Runnable {
 
         player.isMoving = movingNow;
 
-        // Анимация
         if (player.isMoving) {
             player.animationTick++;
             if (player.animationTick > 10) {
@@ -96,8 +154,6 @@ public class GameController extends MouseAdapter implements Runnable {
             player.animationFrame = 0;
         }
 
-        // ПРОВЕРКА ВХОДА В ПОРТАЛ (Коллизия)
-        // Если игрок подошел к порталу (600, 400)
         if (player.x > 550 && player.x < 650 && player.y > 350 && player.y < 450) {
             startBattle();
         }
@@ -106,12 +162,18 @@ public class GameController extends MouseAdapter implements Runnable {
     private void startBattle() {
         panel.isBattleMode = true;
         wasAttackUsed = false;
-        player.hand.clear();
-        for(int i=0; i<5; i++) player.hand.add(rnd.nextInt(9) + 1);
-        player.currentEnemies.clear();
-        for(int i=0; i<4; i++) player.currentEnemies.add(new Enemy(rnd.nextInt(9) + 1));
+        isEnemyTurning = false;
 
-        // Смещаем игрока от портала, чтобы не зайти в него снова мгновенно
+        player.hand.clear();
+        for(int i = 0; i < 5; i++) {
+            player.hand.add(rnd.nextInt(9) + 1);
+        }
+
+        player.currentEnemies.clear();
+        for(int i = 0; i < 4; i++) {
+            player.currentEnemies.add(new Enemy(rnd.nextInt(9) + 1));
+        }
+
         player.x -= 100;
     }
 
